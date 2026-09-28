@@ -36,15 +36,20 @@ app.use(express.json());
 // Initialize SQLite database (WAL on local/on-prem, /tmp on Vercel)
 initDatabase();
 
-// Auto-seed if database has no users (e.g. fresh Vercel /tmp or newly created db)
+// Ensure official accounts and taxonomies are fully populated
 try {
-  const userRow = db.prepare('SELECT COUNT(*) as count FROM users').get();
-  if (!userRow || userRow.count === 0) {
-    console.log('[Server] Database is empty. Running auto-seed for all accounts and taxonomies...');
+  const lead = db.prepare('SELECT id FROM users WHERE LOWER(email) = ?').get('a.hashim@ebetech.com.eg');
+  if (!lead) {
+    console.log('[Server] Official accounts missing or outdated. Running database seed...');
     seedDatabase();
   }
 } catch (err) {
-  console.warn('[Server] Auto-seed check error:', err.message);
+  console.warn('[Server] Seed check error:', err.message);
+  try {
+    seedDatabase();
+  } catch (e) {
+    console.error('[Server] Emergency seed failed:', e.message);
+  }
 }
 
 // Mount REST API endpoints
