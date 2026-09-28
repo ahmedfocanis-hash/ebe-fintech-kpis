@@ -1,0 +1,69 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    background-color: #fffcf6;
+    color: #032125;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-weight: 475;
+  }
+
+  /* Universal strict radius overrides to prevent accidental large corners */
+  input, textarea, select {
+    border-radius: 2px !important;
+  }
+}
+
+/* Customer.io Focus Glow Utilities (No drop shadows) */
+.focus-glow:focus, .focus-glow:focus-visible {
+  outline: none !important;
+  box-shadow: 0px 0px 0px 4px #abffae !important;
+}
+
+.focus-glow-dark:focus, .focus-glow-dark:focus-visible {
+  outline: none !important;
+  box-shadow: 0px 0px 0px 4px #0b363b !important;
+}
+
+.focus-glow-wave:focus, .focus-glow-wave:focus-visible {
+  outline: none !important;
+  box-shadow: 0px 0px 0px 4px #e2f4ff !important;
+}
+
+/* Custom Scrollbar - Spruce Minimal */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #00191c;
+}
+::-webkit-scrollbar-thumb {
+  background: #0b363b;
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #437278;
+}
+
+/* Print styles for HR audit exports */
+@media print {
+  body {
+    background-color: white !important;
+    color: black !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  .card-print {
+    border: 1px solid #ebebeb !important;
+    background: white !important;
+    color: black !important;
+    box-shadow: none !important;
+  }
+}
