@@ -55,8 +55,8 @@ export function seedDatabase() {
   `);
 
   const insertScorecardItem = db.prepare(`
-    INSERT INTO scorecard_items (scorecard_id, kpi_id, self_score, manager_score, manager_notes)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO scorecard_items (scorecard_id, kpi_id, self_score, manager_score, manager_notes, auditor_comment)
+    VALUES (?, ?, ?, ?, ?, ?)
   `);
 
   const SALT_ROUNDS = 10;
@@ -85,14 +85,14 @@ export function seedDatabase() {
     null,
     null,
     null,
-    0,
-    0,
-    'Pending',
-    ''
+    0.00,
+    0.00,
+    null,
+    null
   );
   const ahmedScorecardId = ahmedScRes.lastInsertRowid;
   KPIS.forEach(kpi => {
-    insertScorecardItem.run(ahmedScorecardId, kpi.id, 0, 0, '');
+    insertScorecardItem.run(ahmedScorecardId, kpi.id, null, null, null, null);
   });
 
   // 2. Executive Managers / Reviewers
@@ -177,16 +177,16 @@ export function seedDatabase() {
       null,
       null,
       teamLeadId,
-      0,
-      0,
-      'Pending',
-      ''
+      0.00,
+      0.00,
+      null,
+      null
     );
     const scorecardId = scRes.lastInsertRowid;
 
-    // Insert all 27 items with 0 score (ready for employee self-assessment)
+    // Insert all 27 items with null score (ready for employee self-assessment)
     KPIS.forEach((kpi) => {
-      insertScorecardItem.run(scorecardId, kpi.id, 0, 0, '');
+      insertScorecardItem.run(scorecardId, kpi.id, null, null, null, null);
     });
   });
 

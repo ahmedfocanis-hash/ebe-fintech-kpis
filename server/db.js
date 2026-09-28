@@ -155,13 +155,13 @@ export function ensureAhmedScorecard() {
         INSERT INTO scorecards (
           user_id, period, status, self_submitted_at, reviewed_at, audited_at, manager_id,
           self_composite_score, final_composite_score, tier, overall_manager_notes
-        ) VALUES (?, 'Q3 2026', 'Draft', null, null, null, null, 0, 0, 'Pending', '')
+        ) VALUES (?, 'Q3 2026', 'Draft', null, null, null, null, 0.00, 0.00, null, null)
       `).run(ahmed.id);
       
       const scId = scRes.lastInsertRowid;
       const insertItem = db.prepare(`
-        INSERT INTO scorecard_items (scorecard_id, kpi_id, self_score, manager_score, manager_notes)
-        VALUES (?, ?, 0, 0, '')
+        INSERT INTO scorecard_items (scorecard_id, kpi_id, self_score, manager_score, manager_notes, auditor_comment)
+        VALUES (?, ?, null, null, null, null)
       `);
 
       KPIS.forEach(kpi => {
