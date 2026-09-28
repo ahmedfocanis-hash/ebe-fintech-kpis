@@ -6,7 +6,8 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import apiRouter from './server/api.js';
-import { initDatabase } from './server/db.js';
+import { initDatabase, db } from './server/db.js';
+import { seedDatabase } from './server/seed.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -34,6 +35,17 @@ app.use(express.json());
 
 // Initialize SQLite database (WAL on local/on-prem, /tmp on Vercel)
 initDatabase();
+
+// Auto-seed if database has no users (e.g. fresh Vercel /tmp or newly created db)
+try {
+  const userRow = db.prepare('SELECT COUNT(*) as count FROM users').get();
+  if (!userRow || userRow.count === 0) {
+    console.log('[Server] Database is empty. Running auto-seed for all accounts and taxonomies...');
+    seedDatabase();
+  }
+} catch (err) {
+  console.warn('[Server] Auto-seed check error:', err.message);
+}
 
 // Mount REST API endpoints
 app.use('/api', apiRouter);
@@ -71,12 +83,14 @@ app.use((err, req, res, next) => {
   });
 });
 
-const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`====================================================`);
-  console.log(` Fintech BA KPI Evaluation System is LIVE!`);
-  console.log(` Local URL: http://localhost:${PORT}`);
-  console.log(` Environment: ${process.env.NODE_ENV || 'production'}`);
-  console.log(`====================================================`);
-});
+if (!process.env.VERCEL) {
+  const server = app.listen(PORT, '0.0.0.0', () => {
+    console.log(`====================================================`);
+    console.log(` Fintech BA KPI Evaluation System is LIVE!`);
+    console.log(` Local URL: http://localhost:${PORT}`);
+    console.log(` Environment: ${process.env.NODE_ENV || 'production'}`);
+    console.log(`====================================================`);
+  });
+}
 
 export default app;

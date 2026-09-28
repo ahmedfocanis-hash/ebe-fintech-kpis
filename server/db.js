@@ -13,13 +13,22 @@ let DB_PATH;
 
 if (isVercel) {
   DB_PATH = path.join('/tmp', 'kpis.db');
-  const sourceDbPath = path.resolve(__dirname, '..', 'kpis.db');
-  if (!fs.existsSync(DB_PATH) && fs.existsSync(sourceDbPath)) {
-    try {
-      fs.copyFileSync(sourceDbPath, DB_PATH);
-      console.log('[Database] Vercel Cold-start: Copied seeded database to /tmp/kpis.db');
-    } catch (err) {
-      console.warn('[Database] Could not copy source database to /tmp:', err.message);
+  const possiblePaths = [
+    path.resolve(__dirname, '..', 'kpis.db'),
+    path.resolve(process.cwd(), 'kpis.db'),
+    path.join('/var', 'task', 'kpis.db')
+  ];
+  if (!fs.existsSync(DB_PATH)) {
+    for (const p of possiblePaths) {
+      if (fs.existsSync(p)) {
+        try {
+          fs.copyFileSync(p, DB_PATH);
+          console.log('[Database] Vercel Cold-start: Copied seeded database from', p, 'to /tmp/kpis.db');
+          break;
+        } catch (err) {
+          console.warn('[Database] Could not copy source database to /tmp:', err.message);
+        }
+      }
     }
   }
 } else {
