@@ -140,6 +140,7 @@ router.get('/scorecards', authenticateToken, (req, res) => {
         m.name as manager_name
       FROM scorecards s
       JOIN users u ON s.user_id = u.id
+      LEFT JOIN users m ON s.manager_id = m.id
       WHERE s.id IN (
         SELECT MAX(id) FROM scorecards GROUP BY user_id
       )
