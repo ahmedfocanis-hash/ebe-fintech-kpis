@@ -94,7 +94,14 @@ app.use((err, req, res, next) => {
   });
 });
 
-if (!process.env.VERCEL) {
+const isServerless = Boolean(
+  process.env.VERCEL || 
+  process.env.AWS_LAMBDA_FUNCTION_NAME || 
+  process.env.LAMBDA_TASK_ROOT || 
+  (typeof process.cwd === 'function' && process.cwd().startsWith('/var/task'))
+);
+
+if (!isServerless) {
   const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`====================================================`);
     console.log(` Fintech BA KPI Evaluation System is LIVE!`);

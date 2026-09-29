@@ -1,11 +1,17 @@
 import fs from 'fs';
 import path from 'path';
 
-// Production log file: /tmp/production.log on Vercel, ./production.log locally
-const isVercel = Boolean(process.env.VERCEL);
-export const LOG_FILE_PATH = isVercel 
-  ? '/tmp/production.log' 
-  : path.resolve(process.cwd(), 'production.log');
+// Production log file: strictly /tmp on Vercel / Lambda, process.cwd() locally
+const isVercel = Boolean(
+  process.env.VERCEL || 
+  process.env.AWS_LAMBDA_FUNCTION_NAME || 
+  process.env.LAMBDA_TASK_ROOT || 
+  (typeof process.cwd === 'function' && process.cwd().startsWith('/var/task'))
+);
+
+export const LOG_DIR = isVercel ? '/tmp' : process.cwd();
+export const LOG_FILE = path.join(LOG_DIR, 'production.log');
+export const LOG_FILE_PATH = LOG_FILE;
 
 /**
  * Output a formatted log entry to console.log (for Vercel dashboard) AND append to file.
@@ -45,15 +51,16 @@ export function writeProductionLog(arg, req = null, statusCode = 200) {
   // Log to stdout for Vercel runtime log collector
   console.log(logLine);
 
-  // Append to file
+  // Safe, non-blocking disk append with fail-safe error handling
   try {
-    fs.appendFile(LOG_FILE_PATH, logLine + '\n', 'utf8', (err) => {
+    fs.appendFile(LOG_FILE, logLine + '\n', 'utf8', (err) => {
       if (err) {
-        console.error('[ProductionLogger Error]', err.message);
+        // Silently caught / logged via warning without interrupting Express or throwing
+        console.warn('[ProductionLogger Warning: Disk write failed]', err.message);
       }
     });
   } catch (err) {
-    console.error('[ProductionLogger Error]', err.message);
+    console.warn('[ProductionLogger Warning: Disk write exception]', err.message);
   }
 
   return logLine;
@@ -65,37 +72,44 @@ export function writeProductionLog(arg, req = null, statusCode = 200) {
  */
 export function productionLoggingMiddleware(req, res, next) {
   res.on('finish', () => {
-    // If request already logged a custom state transition, avoid duplicate entry
-    if (req._transitionLogged) return;
+    try {
+      // If request already logged a custom state transition, avoid duplicate entry
+      if (req._transitionLogged) return;
 
-    const method = req.method;
-    const url = req.originalUrl || req.url;
-    const statusCode = res.statusCode;
+      const method = req.method;
+      const url = req.originalUrl || req.url;
+      const statusCode = res.statusCode;
 
-    let userStr = 'anonymous/public';
-    if (req.user) {
-      const identifier = req.user.email || req.user.name || `id:${req.user.id}`;
-      const role = req.user.role || 'USER';
-      userStr = `${identifier}/${role}`;
-    } else if (req.body && req.body.email) {
-      userStr = `${req.body.email}/unauthenticated`;
+      let userStr = 'anonymous/public';
+      if (req.user) {
+        const identifier = req.user.email || req.user.name || `id:${req.user.id}`;
+        const role = req.user.role || 'USER';
+        userStr = `${identifier}/${role}`;
+      } else if (req.body && req.body.email) {
+        userStr = `${req.body.email}/unauthenticated`;
+      }
+
+      const message = req._customLogMessage || res.statusMessage || (statusCode >= 400 ? 'Request Error' : 'Request OK');
+
+      writeProductionLog({
+        method,
+        url,
+        user: userStr,
+        statusCode,
+        message
+      });
+    } catch (middlewareErr) {
+      // Completely fail-safe: never bubble error up to Express
+      console.warn('[ProductionLoggingMiddleware Warning]', middlewareErr.message);
     }
-
-    const message = req._customLogMessage || res.statusMessage || (statusCode >= 400 ? 'Request Error' : 'Request OK');
-
-    writeProductionLog({
-      method,
-      url,
-      user: userStr,
-      statusCode,
-      message
-    });
   });
 
   next();
 }
 
 export default {
+  LOG_DIR,
+  LOG_FILE,
   LOG_FILE_PATH,
   writeProductionLog,
   productionLoggingMiddleware

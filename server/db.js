@@ -8,7 +8,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Hybrid Database Adapter: Detect Vercel serverless environment vs Local / On-Premise
-const isVercel = Boolean(process.env.VERCEL);
+const isVercel = Boolean(
+  process.env.VERCEL || 
+  process.env.AWS_LAMBDA_FUNCTION_NAME || 
+  process.env.LAMBDA_TASK_ROOT || 
+  (typeof process.cwd === 'function' && process.cwd().startsWith('/var/task'))
+);
 let DB_PATH;
 
 if (isVercel) {
