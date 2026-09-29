@@ -1,3 +1,9 @@
 [2026-09-29T08:59:52.847Z] | Scorecard ID 40 transitioned from Draft to Submitted (Employee: Rawan Mohamed, User ID: 52, Self Score: 7.50)
 [2026-09-29T08:59:52.850Z] | Scorecard ID 39 transitioned from Draft to Reviewed (Employee: ALy Alaa, Lead: Ahmed Hashim, Score: 8.65, Tier: Top Performer)
 [2026-09-29T09:14:00.001Z] | SYS - | User: system/internal | Status: 200 | Message: Production server logging initialized
+[2026-09-29T14:14:47.501Z] | SYS - | User: system/internal | Status: 200 | Message: Production server logging initialized
+[2026-09-29T14:15:13.224Z] | SYS - | User: system/internal | Status: 200 | Message: Production server logging initialized
+[2026-09-29T14:15:14.212Z] | POST /api/auth/login | User: anonymous/public | Status: 200 | Message: OK
+[2026-09-29T14:15:14.273Z] | GET /api/scorecards | User: a.hashim@ebetech.com.eg/TEAM_LEAD | Status: 200 | Message: OK
+[2026-09-29T14:15:14.299Z] | GET /api/audit-feed | User: a.hashim@ebetech.com.eg/TEAM_LEAD | Status: 200 | Message: OK
+[2026-09-29T14:15:14.320Z] | GET /api/analytics/leaderboard | User: a.hashim@ebetech.com.eg/TEAM_LEAD | Status: 200 | Message: OK

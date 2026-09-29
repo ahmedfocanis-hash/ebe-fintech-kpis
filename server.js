@@ -39,20 +39,20 @@ app.use(productionLoggingMiddleware);
 // Record initial server startup entry
 writeProductionLog('Production server logging initialized');
 
-// Initialize SQLite database (WAL on local/on-prem, /tmp on Vercel)
-initDatabase();
+// Initialize SQLite database (WAL on local/on-prem, /tmp on Vercel, or Turso Cloud)
+await initDatabase();
 
 // Ensure official accounts and taxonomies are fully populated
 try {
-  const lead = db.prepare('SELECT id FROM users WHERE LOWER(email) = ?').get('a.hashim@ebetech.com.eg');
+  const lead = await db.get('SELECT id FROM users WHERE LOWER(email) = ?', ['a.hashim@ebetech.com.eg']);
   if (!lead) {
     console.log('[Server] Official accounts missing or outdated. Running database seed...');
-    seedDatabase();
+    await seedDatabase();
   }
 } catch (err) {
   console.warn('[Server] Seed check error:', err.message);
   try {
-    seedDatabase();
+    await seedDatabase();
   } catch (e) {
     console.error('[Server] Emergency seed failed:', e.message);
   }

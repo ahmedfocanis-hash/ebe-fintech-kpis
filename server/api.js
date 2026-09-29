@@ -39,9 +39,9 @@ export function authenticateToken(req, res, next) {
 }
 
 // GET /api/users - Get all users for quick login / demo switching
-router.get('/users', (req, res) => {
+router.get('/users', async (req, res) => {
   try {
-    const users = db.prepare(`
+    const users = await db.all(`
       SELECT id, email, name, role, level, department, title, avatar
       FROM users
       ORDER BY 
@@ -51,7 +51,7 @@ router.get('/users', (req, res) => {
           ELSE 3 
         END,
         id ASC
-    `).all();
+    `);
     res.json({ success: true, users });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -59,23 +59,23 @@ router.get('/users', (req, res) => {
 });
 
 // POST /api/auth/login - Secure login with bcrypt verification & JWT issuance
-router.post('/auth/login', loginLimiter, (req, res) => {
+router.post('/auth/login', loginLimiter, async (req, res) => {
   try {
     const { email, password, userId } = req.body;
     let user;
 
     if (email) {
-      user = db.prepare(`
+      user = await db.get(`
         SELECT id, email, name, role, level, department, title, avatar, password, password_hash
         FROM users 
         WHERE LOWER(email) = LOWER(?)
-      `).get(email);
+      `, [email]);
     } else if (userId) {
-      user = db.prepare(`
+      user = await db.get(`
         SELECT id, email, name, role, level, department, title, avatar, password, password_hash
         FROM users 
         WHERE id = ?
-      `).get(userId);
+      `, [userId]);
     }
 
     if (!user) {
@@ -122,7 +122,7 @@ router.get('/taxonomy', (req, res) => {
 });
 
 // GET /api/scorecards - List scorecards with RBAC filtering
-router.get('/scorecards', authenticateToken, (req, res) => {
+router.get('/scorecards', authenticateToken, async (req, res) => {
   try {
     const { status, level, search } = req.query;
 
@@ -153,7 +153,6 @@ router.get('/scorecards', authenticateToken, (req, res) => {
       // plus the Team Lead's own scorecard (for self-assessment tab), regardless of their current status!
       query += ` AND (u.role = 'EMPLOYEE' OR s.user_id = ?)`;
       params.push(req.user.id);
-      // Team Lead has complete visibility into all employee scorecards across all statuses ('Draft', 'Submitted', 'Reviewed', 'Audited', 'Needs Revision')
     } else if (req.user.role === 'EMPLOYEE') {
       // Ensure the employee's fetch query returns their scorecard safely in ALL statuses ('Draft', 'Submitted', 'Reviewed', 'Needs Revision', 'Audited')
       query += ` AND s.user_id = ?`;
@@ -178,7 +177,7 @@ router.get('/scorecards', authenticateToken, (req, res) => {
 
     query += ` ORDER BY s.final_composite_score DESC, s.id ASC`;
 
-    const scorecards = db.prepare(query).all(...params);
+    const scorecards = await db.all(query, params);
     res.json({ success: true, scorecards });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -186,7 +185,7 @@ router.get('/scorecards', authenticateToken, (req, res) => {
 });
 
 // GET /api/scorecards/user/:userId - Get employee's active scorecard with RBAC
-router.get('/scorecards/user/:userId', authenticateToken, (req, res) => {
+router.get('/scorecards/user/:userId', authenticateToken, async (req, res) => {
   try {
     const targetUserId = Number(req.params.userId);
 
@@ -195,7 +194,7 @@ router.get('/scorecards/user/:userId', authenticateToken, (req, res) => {
       return res.status(403).json({ success: false, message: 'Forbidden: You can only view your own scorecard' });
     }
 
-    const scorecard = db.prepare(`
+    const scorecard = await db.get(`
       SELECT 
         s.*,
         COALESCE(s.self_composite_score, 0.0) as self_composite_score,
@@ -210,14 +209,14 @@ router.get('/scorecards/user/:userId', authenticateToken, (req, res) => {
       WHERE s.user_id = ?
       ORDER BY s.id DESC
       LIMIT 1
-    `).get(targetUserId);
+    `, [targetUserId]);
 
     if (!scorecard) {
       return res.status(404).json({ success: false, message: 'Scorecard not found for user' });
     }
 
     // Get Items
-    const items = db.prepare(`
+    const items = await db.all(`
       SELECT 
         si.*,
         COALESCE(si.self_score, 0) as self_score,
@@ -227,7 +226,7 @@ router.get('/scorecards/user/:userId', authenticateToken, (req, res) => {
       JOIN kpis k ON si.kpi_id = k.id
       WHERE si.scorecard_id = ?
       ORDER BY k.category_id ASC, k.order_idx ASC
-    `).all(scorecard.id);
+    `, [scorecard.id]);
 
     // Dynamic Calculations
     const calculations = calculateScorecard(
@@ -239,9 +238,9 @@ router.get('/scorecards/user/:userId', authenticateToken, (req, res) => {
     const managerCalculations = calculateScorecard(scorecard.employee_level, items, 'manager');
 
     // Get Audit Logs
-    const auditLogs = db.prepare(`
+    const auditLogs = await db.all(`
       SELECT * FROM audit_logs WHERE scorecard_id = ? ORDER BY created_at ASC
-    `).all(scorecard.id);
+    `, [scorecard.id]);
 
     res.json({
       success: true,
@@ -260,10 +259,10 @@ router.get('/scorecards/user/:userId', authenticateToken, (req, res) => {
 });
 
 // GET /api/scorecards/:id - Detailed Scorecard with RBAC
-router.get('/scorecards/:id', authenticateToken, (req, res) => {
+router.get('/scorecards/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const scorecard = db.prepare(`
+    const scorecard = await db.get(`
       SELECT 
         s.*,
         COALESCE(s.self_composite_score, 0.0) as self_composite_score,
@@ -276,7 +275,7 @@ router.get('/scorecards/:id', authenticateToken, (req, res) => {
       JOIN users u ON s.user_id = u.id
       LEFT JOIN users m ON s.manager_id = m.id
       WHERE s.id = ?
-    `).get(id);
+    `, [id]);
 
     if (!scorecard) {
       return res.status(404).json({ success: false, message: 'Scorecard not found' });
@@ -288,7 +287,7 @@ router.get('/scorecards/:id', authenticateToken, (req, res) => {
     }
 
     // Get Items
-    const items = db.prepare(`
+    const items = await db.all(`
       SELECT 
         si.*,
         COALESCE(si.self_score, 0) as self_score,
@@ -298,7 +297,7 @@ router.get('/scorecards/:id', authenticateToken, (req, res) => {
       JOIN kpis k ON si.kpi_id = k.id
       WHERE si.scorecard_id = ?
       ORDER BY k.category_id ASC, k.order_idx ASC
-    `).all(scorecard.id);
+    `, [scorecard.id]);
 
     // Dynamic Calculations
     const calculations = calculateScorecard(
@@ -310,9 +309,9 @@ router.get('/scorecards/:id', authenticateToken, (req, res) => {
     const managerCalculations = calculateScorecard(scorecard.employee_level, items, 'manager');
 
     // Get Audit Logs
-    const auditLogs = db.prepare(`
+    const auditLogs = await db.all(`
       SELECT * FROM audit_logs WHERE scorecard_id = ? ORDER BY created_at ASC
-    `).all(scorecard.id);
+    `, [scorecard.id]);
 
     res.json({
       success: true,
@@ -331,17 +330,17 @@ router.get('/scorecards/:id', authenticateToken, (req, res) => {
 });
 
 // PUT /api/scorecards/:id/self-ratings - Save Draft Self Ratings with RBAC
-router.put('/scorecards/:id/self-ratings', authenticateToken, (req, res) => {
+router.put('/scorecards/:id/self-ratings', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
     const { items } = req.body;
 
-    const scorecard = db.prepare(`
+    const scorecard = await db.get(`
       SELECT s.*, u.level as employee_level
       FROM scorecards s
       JOIN users u ON s.user_id = u.id
       WHERE s.id = ?
-    `).get(id);
+    `, [id]);
 
     if (!scorecard) {
       return res.status(404).json({ success: false, message: 'Scorecard not found' });
@@ -356,31 +355,23 @@ router.put('/scorecards/:id/self-ratings', authenticateToken, (req, res) => {
       return res.status(400).json({ success: false, message: 'Cannot modify self-ratings after manager review is finalized.' });
     }
 
-    const updateItem = db.prepare(`
-      UPDATE scorecard_items
-      SET self_score = ?
-      WHERE scorecard_id = ? AND kpi_id = ?
-    `);
-
-    const updateTx = db.transaction((itemList) => {
-      for (const item of itemList) {
-        updateItem.run(Number(item.self_score) || 0, id, item.kpi_id);
-      }
-    });
-
-    if (items && Array.isArray(items)) {
-      updateTx(items);
+    if (items && Array.isArray(items) && items.length > 0) {
+      const batchStmts = items.map(item => ({
+        sql: `UPDATE scorecard_items SET self_score = ? WHERE scorecard_id = ? AND kpi_id = ?`,
+        args: [Number(item.self_score) || 0, id, item.kpi_id]
+      }));
+      await db.batch(batchStmts);
     }
 
     // Recalculate self score
-    const updatedItems = db.prepare(`SELECT * FROM scorecard_items WHERE scorecard_id = ?`).all(id);
+    const updatedItems = await db.all(`SELECT * FROM scorecard_items WHERE scorecard_id = ?`, [id]);
     const selfCalc = calculateScorecard(scorecard.employee_level, updatedItems, 'self');
 
-    db.prepare(`
+    await db.run(`
       UPDATE scorecards
       SET self_composite_score = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
-    `).run(selfCalc.composite_score, id);
+    `, [selfCalc.composite_score, id]);
 
     res.json({
       success: true,
@@ -394,17 +385,17 @@ router.put('/scorecards/:id/self-ratings', authenticateToken, (req, res) => {
 });
 
 // POST /api/scorecards/:id/submit - Submit for Review with RBAC
-router.post('/scorecards/:id/submit', authenticateToken, (req, res) => {
+router.post('/scorecards/:id/submit', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
     const { items, authorName, authorId } = req.body;
 
-    const scorecard = db.prepare(`
+    const scorecard = await db.get(`
       SELECT s.*, u.level as employee_level, u.name as employee_name, u.role as employee_role
       FROM scorecards s
       JOIN users u ON s.user_id = u.id
       WHERE s.id = ?
-    `).get(id);
+    `, [id]);
 
     if (!scorecard) {
       return res.status(404).json({ success: false, message: 'Scorecard not found' });
@@ -416,30 +407,27 @@ router.post('/scorecards/:id/submit', authenticateToken, (req, res) => {
     }
 
     // Save any pending items first if provided
-    if (items && Array.isArray(items)) {
-      const updateItem = db.prepare(`
-        UPDATE scorecard_items
-        SET self_score = ?
-        WHERE scorecard_id = ? AND kpi_id = ?
-      `);
-      for (const item of items) {
-        updateItem.run(Number(item.self_score) || 0, id, item.kpi_id);
-      }
+    if (items && Array.isArray(items) && items.length > 0) {
+      const batchStmts = items.map(item => ({
+        sql: `UPDATE scorecard_items SET self_score = ? WHERE scorecard_id = ? AND kpi_id = ?`,
+        args: [Number(item.self_score) || 0, id, item.kpi_id]
+      }));
+      await db.batch(batchStmts);
     }
 
-    const currentItems = db.prepare(`SELECT * FROM scorecard_items WHERE scorecard_id = ?`).all(id);
+    const currentItems = await db.all(`SELECT * FROM scorecard_items WHERE scorecard_id = ?`, [id]);
     const selfCalc = calculateScorecard(scorecard.employee_level, currentItems, 'self');
 
     // Update status to Submitted
     const oldStatus = scorecard.status;
-    db.prepare(`
+    await db.run(`
       UPDATE scorecards
       SET status = 'Submitted',
           self_submitted_at = CURRENT_TIMESTAMP,
           self_composite_score = ?,
           updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
-    `).run(selfCalc.composite_score, id);
+    `, [selfCalc.composite_score, id]);
 
     // Log explicit state transition to production.log and console
     req._transitionLogged = true;
@@ -451,15 +439,15 @@ router.post('/scorecards/:id/submit', authenticateToken, (req, res) => {
       ? `Submitted Team Lead self-evaluation with projected score of ${selfCalc.composite_score} to Executive Management (Ahmed Nasser & Nour Asser).`
       : `Submitted self-evaluation with projected score of ${selfCalc.composite_score} for Team Lead review.`;
 
-    db.prepare(`
+    await db.run(`
       INSERT INTO audit_logs (scorecard_id, author_id, author_name, action, comment, created_at)
       VALUES (?, ?, ?, 'STATUS_CHANGE', ?, CURRENT_TIMESTAMP)
-    `).run(
+    `, [
       id,
       authorId || scorecard.user_id,
       authorName || scorecard.employee_name,
       logComment
-    );
+    ]);
 
     res.json({
       success: true,
@@ -475,7 +463,7 @@ router.post('/scorecards/:id/submit', authenticateToken, (req, res) => {
 });
 
 // PUT /api/scorecards/:id/manager-review - Save Manager Review with RBAC
-router.put('/scorecards/:id/manager-review', authenticateToken, (req, res) => {
+router.put('/scorecards/:id/manager-review', authenticateToken, async (req, res) => {
   try {
     // RBAC: Team Lead or Executive Auditor only
     if (req.user.role !== 'TEAM_LEAD' && req.user.role !== 'EXECUTIVE_AUDITOR') {
@@ -485,42 +473,34 @@ router.put('/scorecards/:id/manager-review', authenticateToken, (req, res) => {
     const { id } = req.params;
     const { items, overall_manager_notes, managerId } = req.body;
 
-    const scorecard = db.prepare(`
+    const scorecard = await db.get(`
       SELECT s.*, u.level as employee_level
       FROM scorecards s
       JOIN users u ON s.user_id = u.id
       WHERE s.id = ?
-    `).get(id);
+    `, [id]);
 
     if (!scorecard) {
       return res.status(404).json({ success: false, message: 'Scorecard not found' });
     }
 
-    const updateItem = db.prepare(`
-      UPDATE scorecard_items
-      SET manager_score = ?, manager_notes = ?
-      WHERE scorecard_id = ? AND kpi_id = ?
-    `);
-
-    const updateTx = db.transaction((itemList) => {
-      for (const item of itemList) {
-        updateItem.run(
+    if (items && Array.isArray(items) && items.length > 0) {
+      const batchStmts = items.map(item => ({
+        sql: `UPDATE scorecard_items SET manager_score = ?, manager_notes = ? WHERE scorecard_id = ? AND kpi_id = ?`,
+        args: [
           Number(item.manager_score) || 0,
           item.manager_notes || '',
           id,
           item.kpi_id
-        );
-      }
-    });
-
-    if (items && Array.isArray(items)) {
-      updateTx(items);
+        ]
+      }));
+      await db.batch(batchStmts);
     }
 
-    const updatedItems = db.prepare(`SELECT * FROM scorecard_items WHERE scorecard_id = ?`).all(id);
+    const updatedItems = await db.all(`SELECT * FROM scorecard_items WHERE scorecard_id = ?`, [id]);
     const mgrCalc = calculateScorecard(scorecard.employee_level, updatedItems, 'manager');
 
-    db.prepare(`
+    await db.run(`
       UPDATE scorecards
       SET final_composite_score = ?,
           tier = ?,
@@ -528,13 +508,13 @@ router.put('/scorecards/:id/manager-review', authenticateToken, (req, res) => {
           manager_id = COALESCE(?, manager_id),
           updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
-    `).run(
+    `, [
       mgrCalc.composite_score,
       mgrCalc.tier,
       overall_manager_notes,
       managerId || req.user.id,
       id
-    );
+    ]);
 
     req._transitionLogged = true;
     writeProductionLog(`Scorecard ${id} manager review updated by ${req.user.name || 'Ahmed Hashim'} (Score: ${mgrCalc.composite_score})`, req, 200);
@@ -552,7 +532,7 @@ router.put('/scorecards/:id/manager-review', authenticateToken, (req, res) => {
 });
 
 // POST /api/scorecards/:id/finalize - Finalize & Send to Management with RBAC
-router.post('/scorecards/:id/finalize', authenticateToken, (req, res) => {
+router.post('/scorecards/:id/finalize', authenticateToken, async (req, res) => {
   try {
     // RBAC: Team Lead or Executive Auditor only
     if (req.user.role !== 'TEAM_LEAD' && req.user.role !== 'EXECUTIVE_AUDITOR') {
@@ -562,38 +542,35 @@ router.post('/scorecards/:id/finalize', authenticateToken, (req, res) => {
     const { id } = req.params;
     const { items, overall_manager_notes, managerId, managerName } = req.body;
 
-    const scorecard = db.prepare(`
+    const scorecard = await db.get(`
       SELECT s.*, u.level as employee_level, u.name as employee_name
       FROM scorecards s
       JOIN users u ON s.user_id = u.id
       WHERE s.id = ?
-    `).get(id);
+    `, [id]);
 
     if (!scorecard) {
       return res.status(404).json({ success: false, message: 'Scorecard not found' });
     }
 
-    if (items && Array.isArray(items)) {
-      const updateItem = db.prepare(`
-        UPDATE scorecard_items
-        SET manager_score = ?, manager_notes = ?
-        WHERE scorecard_id = ? AND kpi_id = ?
-      `);
-      for (const item of items) {
-        updateItem.run(
+    if (items && Array.isArray(items) && items.length > 0) {
+      const batchStmts = items.map(item => ({
+        sql: `UPDATE scorecard_items SET manager_score = ?, manager_notes = ? WHERE scorecard_id = ? AND kpi_id = ?`,
+        args: [
           Number(item.manager_score) || 0,
           item.manager_notes || '',
           id,
           item.kpi_id
-        );
-      }
+        ]
+      }));
+      await db.batch(batchStmts);
     }
 
-    const currentItems = db.prepare(`SELECT * FROM scorecard_items WHERE scorecard_id = ?`).all(id);
+    const currentItems = await db.all(`SELECT * FROM scorecard_items WHERE scorecard_id = ?`, [id]);
     const mgrCalc = calculateScorecard(scorecard.employee_level, currentItems, 'manager');
 
     const oldStatus = scorecard.status;
-    db.prepare(`
+    await db.run(`
       UPDATE scorecards
       SET status = 'Reviewed',
           reviewed_at = CURRENT_TIMESTAMP,
@@ -603,28 +580,28 @@ router.post('/scorecards/:id/finalize', authenticateToken, (req, res) => {
           overall_manager_notes = ?,
           updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
-    `).run(
+    `, [
       managerId || req.user.id,
       mgrCalc.composite_score,
       mgrCalc.tier,
       overall_manager_notes || '',
       id
-    );
+    ]);
 
     // Log explicit state transition to production.log and console
     req._transitionLogged = true;
     writeProductionLog(`Scorecard ${id} transitioned from ${oldStatus} to Reviewed by ${managerName || req.user.name || 'Ahmed Hashim'}`, req, 200);
 
     // Insert audit log
-    db.prepare(`
+    await db.run(`
       INSERT INTO audit_logs (scorecard_id, author_id, author_name, action, comment, created_at)
       VALUES (?, ?, ?, 'STATUS_CHANGE', ?, CURRENT_TIMESTAMP)
-    `).run(
+    `, [
       id,
       managerId || req.user.id,
       managerName || req.user.name || 'Team Lead',
       `Official manager evaluation completed. Composite Score: ${mgrCalc.composite_score} (${mgrCalc.tier}). Forwarded to Executive Auditor.`
-    );
+    ]);
 
     res.json({
       success: true,
@@ -639,7 +616,7 @@ router.post('/scorecards/:id/finalize', authenticateToken, (req, res) => {
 });
 
 // POST /api/scorecards/:id/audit-comment - Executive Auditor Action with RBAC
-router.post('/scorecards/:id/audit-comment', authenticateToken, (req, res) => {
+router.post('/scorecards/:id/audit-comment', authenticateToken, async (req, res) => {
   try {
     // RBAC: Executive Auditor only
     if (req.user.role !== 'EXECUTIVE_AUDITOR') {
@@ -649,12 +626,12 @@ router.post('/scorecards/:id/audit-comment', authenticateToken, (req, res) => {
     const { id } = req.params;
     const { authorId, authorName, comment, action } = req.body;
 
-    const scorecard = db.prepare(`
+    const scorecard = await db.get(`
       SELECT s.*, u.name as employee_name, u.role as employee_role, u.level as employee_level
       FROM scorecards s
       JOIN users u ON s.user_id = u.id
       WHERE s.id = ?
-    `).get(id);
+    `, [id]);
 
     if (!scorecard) {
       return res.status(404).json({ success: false, message: 'Scorecard not found' });
@@ -666,34 +643,34 @@ router.post('/scorecards/:id/audit-comment', authenticateToken, (req, res) => {
 
     if (action === 'APPROVED') {
       newStatus = 'Audited';
-      db.prepare(`
+      await db.run(`
         UPDATE scorecards
         SET status = 'Audited', audited_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-      `).run(id);
+      `, [id]);
       req._transitionLogged = true;
       writeProductionLog(`Scorecard ${id} transitioned from ${oldStatus} to Audited by ${authorName || req.user.name || 'Executive Auditor'}`, req, 200);
     } else if (action === 'REVISION_REQUESTED') {
       newStatus = 'Needs Revision';
-      db.prepare(`
+      await db.run(`
         UPDATE scorecards
         SET status = 'Needs Revision', updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-      `).run(id);
+      `, [id]);
       req._transitionLogged = true;
       writeProductionLog(`Scorecard ${id} transitioned from ${oldStatus} to Needs Revision by ${authorName || req.user.name || 'Executive Auditor'}`, req, 200);
     }
 
-    db.prepare(`
+    await db.run(`
       INSERT INTO audit_logs (scorecard_id, author_id, author_name, action, comment, created_at)
       VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    `).run(
+    `, [
       id,
       authorId || req.user.id,
       authorName || req.user.name || 'Executive Auditor',
       logAction,
       comment
-    );
+    ]);
 
     res.json({
       success: true,
@@ -708,7 +685,7 @@ router.post('/scorecards/:id/audit-comment', authenticateToken, (req, res) => {
 });
 
 // PUT /api/scorecards/:id/auditor-review - Executive Governance & Audit Review with Per-Item Notes
-router.put('/scorecards/:id/auditor-review', authenticateToken, (req, res) => {
+router.put('/scorecards/:id/auditor-review', authenticateToken, async (req, res) => {
   try {
     // RBAC: Executive Auditor only
     if (req.user.role !== 'EXECUTIVE_AUDITOR') {
@@ -718,30 +695,24 @@ router.put('/scorecards/:id/auditor-review', authenticateToken, (req, res) => {
     const { id } = req.params;
     const { auditor_notes, overall_comment, action, authorId, authorName } = req.body;
 
-    const scorecard = db.prepare(`
+    const scorecard = await db.get(`
       SELECT s.*, u.name as employee_name, u.role as employee_role, u.level as employee_level
       FROM scorecards s
       JOIN users u ON s.user_id = u.id
       WHERE s.id = ?
-    `).get(id);
+    `, [id]);
 
     if (!scorecard) {
       return res.status(404).json({ success: false, message: 'Scorecard not found' });
     }
 
     // STRICT GUARD: Update per-criterion auditor comments ONLY (never touching manager_score or self_score!)
-    if (auditor_notes && Array.isArray(auditor_notes)) {
-      const updateAuditorNote = db.prepare(`
-        UPDATE scorecard_items
-        SET auditor_comment = ?
-        WHERE scorecard_id = ? AND kpi_id = ?
-      `);
-      const updateTx = db.transaction((notesList) => {
-        for (const n of notesList) {
-          updateAuditorNote.run(n.comment !== undefined ? n.comment : null, id, n.kpi_id);
-        }
-      });
-      updateTx(auditor_notes);
+    if (auditor_notes && Array.isArray(auditor_notes) && auditor_notes.length > 0) {
+      const batchStmts = auditor_notes.map(n => ({
+        sql: `UPDATE scorecard_items SET auditor_comment = ? WHERE scorecard_id = ? AND kpi_id = ?`,
+        args: [n.comment !== undefined ? n.comment : null, id, n.kpi_id]
+      }));
+      await db.batch(batchStmts);
     }
 
     const oldStatus = scorecard.status;
@@ -750,20 +721,20 @@ router.put('/scorecards/:id/auditor-review', authenticateToken, (req, res) => {
 
     if (action === 'APPROVED') {
       newStatus = 'Audited';
-      db.prepare(`
+      await db.run(`
         UPDATE scorecards
         SET status = 'Audited', audited_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-      `).run(id);
+      `, [id]);
       req._transitionLogged = true;
       writeProductionLog(`Scorecard ${id} transitioned from ${oldStatus} to Audited by ${authorName || req.user.name || 'Executive Auditor'}`, req, 200);
     } else if (action === 'REVISION_REQUESTED') {
       newStatus = 'Needs Revision';
-      db.prepare(`
+      await db.run(`
         UPDATE scorecards
         SET status = 'Needs Revision', updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-      `).run(id);
+      `, [id]);
       req._transitionLogged = true;
       writeProductionLog(`Scorecard ${id} transitioned from ${oldStatus} to Needs Revision by ${authorName || req.user.name || 'Executive Auditor'}`, req, 200);
     } else {
@@ -779,16 +750,16 @@ router.put('/scorecards/:id/auditor-review', authenticateToken, (req, res) => {
           : `Revisions requested by ${authorName || req.user.name || 'Executive Auditor'}.`
       );
 
-      db.prepare(`
+      await db.run(`
         INSERT INTO audit_logs (scorecard_id, author_id, author_name, action, comment, created_at)
         VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-      `).run(
+      `, [
         id,
         authorId || req.user.id,
         authorName || req.user.name || 'Executive Auditor',
         logAction,
         commentText
-      );
+      ]);
     }
 
     res.json({
@@ -806,9 +777,9 @@ router.put('/scorecards/:id/auditor-review', authenticateToken, (req, res) => {
 });
 
 // GET /api/analytics/leaderboard - Team ranking, metrics, and tiers
-router.get('/analytics/leaderboard', authenticateToken, (req, res) => {
+router.get('/analytics/leaderboard', authenticateToken, async (req, res) => {
   try {
-    const scorecards = db.prepare(`
+    const scorecards = await db.all(`
       SELECT 
         s.id, s.user_id, s.period, s.status, s.self_submitted_at, s.reviewed_at, s.audited_at,
         s.self_composite_score, s.final_composite_score, s.tier,
@@ -817,7 +788,7 @@ router.get('/analytics/leaderboard', authenticateToken, (req, res) => {
       FROM scorecards s
       JOIN users u ON s.user_id = u.id
       ORDER BY s.final_composite_score DESC, s.self_composite_score DESC
-    `).all();
+    `);
 
     const counts = {
       total: scorecards.length,
@@ -851,9 +822,9 @@ router.get('/analytics/leaderboard', authenticateToken, (req, res) => {
 });
 
 // GET /api/audit-feed - Manager Comments & Audit Feed across all team scorecards
-router.get('/audit-feed', authenticateToken, (req, res) => {
+router.get('/audit-feed', authenticateToken, async (req, res) => {
   try {
-    const feed = db.prepare(`
+    const feed = await db.all(`
       SELECT 
         al.id, al.scorecard_id, al.author_id, al.author_name, al.action, al.comment, al.created_at,
         s.user_id, s.status as scorecard_status, s.final_composite_score, s.tier,
@@ -862,7 +833,7 @@ router.get('/audit-feed', authenticateToken, (req, res) => {
       JOIN scorecards s ON al.scorecard_id = s.id
       JOIN users u ON s.user_id = u.id
       ORDER BY al.id DESC
-    `).all();
+    `);
     res.json({ success: true, feed });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -870,9 +841,9 @@ router.get('/audit-feed', authenticateToken, (req, res) => {
 });
 
 // POST /api/seed/reset - Reset database to fresh seed state
-router.post('/seed/reset', (req, res) => {
+router.post('/seed/reset', async (req, res) => {
   try {
-    seedDatabase();
+    await seedDatabase();
     writeProductionLog('All scorecards transitioned to Draft via Database Reset');
     res.json({ success: true, message: 'Database reset and re-seeded successfully' });
   } catch (err) {
