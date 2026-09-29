@@ -412,8 +412,10 @@ export default function TeamLeadView({ onInspectScorecard }) {
                 </thead>
                 <tbody className="divide-y divide-[#ebebeb]">
                   {filteredScorecards.map((sc) => {
-                    const delta = (sc.final_composite_score && sc.self_composite_score)
-                      ? (sc.final_composite_score - sc.self_composite_score).toFixed(1)
+                    const selfScoreVal = Number(sc.self_composite_score || sc.self_score || 0);
+                    const managerScoreVal = Number(sc.final_composite_score || sc.manager_score || 0);
+                    const delta = (managerScoreVal > 0 && selfScoreVal > 0)
+                      ? (managerScoreVal - selfScoreVal).toFixed(1)
                       : null;
 
                     return (
@@ -457,7 +459,11 @@ export default function TeamLeadView({ onInspectScorecard }) {
 
                         {/* Self Score */}
                         <td className="py-3.5 px-4 text-center font-mono font-[475] text-[#032125]">
-                          {sc.self_composite_score > 0 ? sc.self_composite_score.toFixed(2) : '-'}
+                          {selfScoreVal > 0 ? (
+                            <span className="font-semibold">{selfScoreVal.toFixed(2)}</span>
+                          ) : (
+                            <span className="text-[#437278]">-</span>
+                          )}
                         </td>
 
                         {/* Manager Final */}

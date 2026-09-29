@@ -53,14 +53,9 @@ export function writeProductionLog(arg, req = null, statusCode = 200) {
 
   // Safe, non-blocking disk append with fail-safe error handling
   try {
-    fs.appendFile(LOG_FILE, logLine + '\n', 'utf8', (err) => {
-      if (err) {
-        // Silently caught / logged via warning without interrupting Express or throwing
-        console.warn('[ProductionLogger Warning: Disk write failed]', err.message);
-      }
-    });
+    fs.appendFileSync(LOG_FILE, logLine + '\n', 'utf8');
   } catch (err) {
-    console.warn('[ProductionLogger Warning: Disk write exception]', err.message);
+    // Silently catch EROFS or filesystem errors in serverless
   }
 
   return logLine;
