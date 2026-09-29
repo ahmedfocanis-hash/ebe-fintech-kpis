@@ -22,10 +22,11 @@ export default function EmployeeView({ targetUserId, onSwitchView }) {
   const { currentUser, showToast, users } = useAuth();
 
   const effectiveUserId = useMemo(() => {
-    if (targetUserId) return targetUserId;
-    if (currentUser?.role === 'EMPLOYEE') return currentUser.id;
+    if (targetUserId) return Number(targetUserId);
+    if (currentUser?.role === 'EMPLOYEE') return Number(currentUser.id);
+    if (currentUser?.id) return Number(currentUser.id);
     const emp = users.find(u => u.role === 'EMPLOYEE');
-    return emp ? emp.id : 44;
+    return emp ? Number(emp.id) : null;
   }, [targetUserId, currentUser, users]);
 
   const [scorecard, setScorecard] = useState(null);
@@ -85,17 +86,24 @@ export default function EmployeeView({ targetUserId, onSwitchView }) {
       grouped[item.category_id].push(item);
     });
 
-    return (scorecard.calculations?.category_breakdown || []).map(cat => {
+    const isReviewedOrAudited = scorecard.status === 'Reviewed' || scorecard.status === 'Audited';
+
+    return (scorecard.calculations?.category_breakdown || scorecard.managerCalculations?.category_breakdown || scorecard.selfCalculations?.category_breakdown || []).map(cat => {
       const items = grouped[cat.category_id] || [];
-      const totalSelf = items.reduce((acc, curr) => acc + (Number(curr.self_score) || 0), 0);
-      const avgSelf = items.length > 0 ? (totalSelf / items.length) : 0;
-      const weightedSelf = (avgSelf * cat.weight_percentage) / 100;
+      const totalScore = items.reduce((acc, curr) => {
+        const val = isReviewedOrAudited 
+          ? (curr.manager_score != null && curr.manager_score > 0 ? Number(curr.manager_score) : (Number(curr.self_score) || 0))
+          : (Number(curr.self_score) || 0);
+        return acc + val;
+      }, 0);
+      const avgScore = items.length > 0 ? (totalScore / items.length) : 0;
+      const weightedScore = (avgScore * cat.weight_percentage) / 100;
 
       return {
         ...cat,
         items,
-        live_avg: Number(avgSelf.toFixed(2)),
-        live_weighted: Number(weightedSelf.toFixed(3))
+        live_avg: Number(avgScore.toFixed(2)),
+        live_weighted: Number(weightedScore.toFixed(3))
       };
     });
   }, [scorecard, itemsState]);
@@ -193,8 +201,21 @@ export default function EmployeeView({ targetUserId, onSwitchView }) {
 
   if (!scorecard) {
     return (
-      <div className="text-center py-16">
-        <p className="text-[#354d51] text-sm font-[475]">Scorecard not found.</p>
+      <div className="max-w-md mx-auto my-16 bg-white border border-[#ebebeb] rounded-[2px] p-8 text-center space-y-4">
+        <div className="w-10 h-10 rounded-full bg-[#fafafa] border border-[#ebebeb] flex items-center justify-center mx-auto text-[#437278]">
+          <AlertCircle className="w-5 h-5" />
+        </div>
+        <div>
+          <h3 className="text-sm font-[475] text-[#032125]">No Active Scorecard</h3>
+          <p className="text-[#354d51] text-xs mt-1">Scorecard record could not be loaded for user ID {effectiveUserId || 'unknown'}.</p>
+        </div>
+        <button
+          type="button"
+          onClick={loadScorecard}
+          className="px-4 py-2 rounded-full bg-[#032125] text-white text-xs font-[475] hover:bg-[#0b363b] transition-all cursor-pointer"
+        >
+          Retry Loading
+        </button>
       </div>
     );
   }
@@ -252,25 +273,39 @@ export default function EmployeeView({ targetUserId, onSwitchView }) {
 
           {/* Quick Metrics Bar on Right */}
           <div className="flex items-center gap-4 bg-[#fafafa] p-4 rounded-[2px] border border-[#ebebeb]">
-            <div className="text-center px-3 border-r border-[#ebebeb]">
-              <div className="text-[10px] uppercase text-[#354d51] font-[475] tracking-wider">
-                {isReadOnly ? 'Self Rating' : 'Projected Self'}
-              </div>
-              <div className="text-2xl font-[475] text-[#032125] font-mono mt-0.5">
-                {isReadOnly ? scorecard.self_composite_score.toFixed(2) : liveCompositeScore.toFixed(2)}
-              </div>
-              <div className="text-[10px] text-[#437278]">out of 10.0</div>
-            </div>
+            {isReadOnly ? (
+              <>
+                <div className="text-center px-3 border-r border-[#ebebeb]">
+                  <div className="text-[10px] uppercase text-[#123a88] font-[475] tracking-wider">
+                    Official Score
+                  </div>
+                  <div className="text-2xl font-[475] text-[#032125] font-mono mt-0.5">
+                    {scorecard.final_composite_score != null && Number(scorecard.final_composite_score) > 0 
+                      ? Number(scorecard.final_composite_score).toFixed(2) 
+                      : 'Pending'}
+                  </div>
+                  <div className="text-[10px] text-[#437278]">by Team Lead</div>
+                </div>
 
-            {isReadOnly && (
+                <div className="text-center px-3 border-r border-[#ebebeb]">
+                  <div className="text-[10px] uppercase text-[#354d51] font-[475] tracking-wider">
+                    Self Rating
+                  </div>
+                  <div className="text-2xl font-[475] text-[#032125] font-mono mt-0.5">
+                    {scorecard.self_composite_score != null ? Number(scorecard.self_composite_score).toFixed(2) : '0.00'}
+                  </div>
+                  <div className="text-[10px] text-[#437278]">out of 10.0</div>
+                </div>
+              </>
+            ) : (
               <div className="text-center px-3 border-r border-[#ebebeb]">
-                <div className="text-[10px] uppercase text-[#123a88] font-[475] tracking-wider">
-                  Official Score
+                <div className="text-[10px] uppercase text-[#354d51] font-[475] tracking-wider">
+                  Projected Self
                 </div>
                 <div className="text-2xl font-[475] text-[#032125] font-mono mt-0.5">
-                  {scorecard.final_composite_score > 0 ? scorecard.final_composite_score.toFixed(2) : 'Pending'}
+                  {liveCompositeScore.toFixed(2)}
                 </div>
-                <div className="text-[10px] text-[#437278]">by Team Lead</div>
+                <div className="text-[10px] text-[#437278]">out of 10.0</div>
               </div>
             )}
 
@@ -283,10 +318,11 @@ export default function EmployeeView({ targetUserId, onSwitchView }) {
                   isReadOnly ? (
                     scorecard.tier === 'Top Performer' ? 'bg-[#eafde8] text-[#032125] border-[#ebebeb]' :
                     scorecard.tier === 'Solid Contributor' ? 'bg-[#e2f4ff] text-[#123a88] border-[#ebebeb]' :
-                    'bg-[#fdf0e9] text-[#863d1c] border-[#863d1c]/40'
+                    scorecard.tier === 'Needs Improvement' ? 'bg-[#fdf0e9] text-[#863d1c] border-[#863d1c]/40' :
+                    'bg-[#fafafa] text-[#354d51] border-[#ebebeb]'
                   ) : liveTier.badgeClass
                 }`}>
-                  {isReadOnly ? scorecard.tier : liveTier.name}
+                  {isReadOnly ? (scorecard.tier || 'Pending') : liveTier.name}
                 </span>
               </div>
             </div>
@@ -355,7 +391,7 @@ export default function EmployeeView({ targetUserId, onSwitchView }) {
                 ? 'bg-[#fdf0e9] text-[#863d1c] border-[#863d1c]'
                 : 'bg-[#eafde8] text-[#032125] border-[#ebebeb]'
             }`}>
-              {scorecard.status === 'Needs Revision' ? 'Needs Revision' : `${scorecard.tier} (Official)`}
+              {scorecard.status === 'Needs Revision' ? 'Needs Revision' : `${scorecard.tier || 'Evaluated'} (Official)`}
             </span>
           </div>
 

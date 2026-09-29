@@ -2,6 +2,7 @@ node_modules/
 .env
 dist/
 *.log
+!production.log
 .vercel/
 *.db-shm
 *.db-wal

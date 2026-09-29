@@ -6,6 +6,7 @@ import { db } from './db.js';
 import { CATEGORIES, KPIS, CATEGORY_WEIGHTS } from './taxonomy.js';
 import { calculateScorecard } from './calculator.js';
 import { seedDatabase } from './seed.js';
+import { writeProductionLog } from './logger.js';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'ebe_fintech_kpi_jwt_secret_2026_prod';
@@ -128,7 +129,11 @@ router.get('/scorecards', authenticateToken, (req, res) => {
     let query = `
       SELECT 
         s.id, s.user_id, s.period, s.status, s.self_submitted_at, s.reviewed_at, s.audited_at,
-        s.manager_id, s.self_composite_score, s.final_composite_score, s.tier, s.overall_manager_notes,
+        s.manager_id, 
+        COALESCE(s.self_composite_score, 0.0) as self_composite_score, 
+        COALESCE(s.final_composite_score, 0.0) as final_composite_score, 
+        COALESCE(s.tier, 'Pending') as tier, 
+        s.overall_manager_notes,
         s.updated_at,
         u.name as employee_name, u.email as employee_email, u.level as employee_level,
         u.title as employee_title, u.avatar as employee_avatar, u.role as employee_role,
@@ -140,15 +145,23 @@ router.get('/scorecards', authenticateToken, (req, res) => {
     `;
     const params = [];
 
-    // RBAC: If Employee, return strictly their own scorecard
-    if (req.user.role === 'EMPLOYEE') {
+    // RBAC:
+    if (req.user.role === 'TEAM_LEAD') {
+      // Explicitly fetch ALL scorecards for ALL employees (where user role is 'EMPLOYEE'),
+      // plus the Team Lead's own scorecard (for self-assessment tab), regardless of their current status!
+      query += ` AND (u.role = 'EMPLOYEE' OR s.user_id = ?)`;
+      params.push(req.user.id);
+      // Team Lead has complete visibility into all employee scorecards across all statuses ('Draft', 'Submitted', 'Reviewed', 'Audited', 'Needs Revision')
+    } else if (req.user.role === 'EMPLOYEE') {
+      // Ensure the employee's fetch query returns their scorecard safely in ALL statuses ('Draft', 'Submitted', 'Reviewed', 'Needs Revision', 'Audited')
       query += ` AND s.user_id = ?`;
       params.push(req.user.id);
-    }
-
-    if (status && status !== 'All') {
-      query += ` AND s.status = ?`;
-      params.push(status);
+    } else {
+      // For Executive Auditors or others, apply status filter if passed
+      if (status && status !== 'All') {
+        query += ` AND s.status = ?`;
+        params.push(status);
+      }
     }
 
     if (level && level !== 'All') {
@@ -183,8 +196,11 @@ router.get('/scorecards/user/:userId', authenticateToken, (req, res) => {
     const scorecard = db.prepare(`
       SELECT 
         s.*,
+        COALESCE(s.self_composite_score, 0.0) as self_composite_score,
+        COALESCE(s.final_composite_score, 0.0) as final_composite_score,
+        COALESCE(s.tier, 'Pending') as tier,
         u.name as employee_name, u.email as employee_email, u.level as employee_level,
-        u.title as employee_title, u.avatar as employee_avatar, u.department,
+        u.title as employee_title, u.avatar as employee_avatar, u.role as employee_role, u.department,
         m.name as manager_name
       FROM scorecards s
       JOIN users u ON s.user_id = u.id
@@ -200,7 +216,11 @@ router.get('/scorecards/user/:userId', authenticateToken, (req, res) => {
 
     // Get Items
     const items = db.prepare(`
-      SELECT si.*, k.code, k.title, k.tooltip, k.category_id, k.order_idx
+      SELECT 
+        si.*,
+        COALESCE(si.self_score, 0) as self_score,
+        COALESCE(si.manager_score, 0) as manager_score,
+        k.code, k.title, k.tooltip, k.category_id, k.order_idx
       FROM scorecard_items si
       JOIN kpis k ON si.kpi_id = k.id
       WHERE si.scorecard_id = ?
@@ -213,6 +233,8 @@ router.get('/scorecards/user/:userId', authenticateToken, (req, res) => {
       items, 
       scorecard.status === 'Draft' || scorecard.status === 'Submitted' ? 'self' : 'manager'
     );
+    const selfCalculations = calculateScorecard(scorecard.employee_level, items, 'self');
+    const managerCalculations = calculateScorecard(scorecard.employee_level, items, 'manager');
 
     // Get Audit Logs
     const auditLogs = db.prepare(`
@@ -225,6 +247,8 @@ router.get('/scorecards/user/:userId', authenticateToken, (req, res) => {
         ...scorecard,
         items,
         calculations,
+        selfCalculations,
+        managerCalculations,
         auditLogs
       }
     });
@@ -240,8 +264,11 @@ router.get('/scorecards/:id', authenticateToken, (req, res) => {
     const scorecard = db.prepare(`
       SELECT 
         s.*,
+        COALESCE(s.self_composite_score, 0.0) as self_composite_score,
+        COALESCE(s.final_composite_score, 0.0) as final_composite_score,
+        COALESCE(s.tier, 'Pending') as tier,
         u.name as employee_name, u.email as employee_email, u.level as employee_level,
-        u.title as employee_title, u.avatar as employee_avatar, u.department,
+        u.title as employee_title, u.avatar as employee_avatar, u.role as employee_role, u.department,
         m.name as manager_name
       FROM scorecards s
       JOIN users u ON s.user_id = u.id
@@ -260,7 +287,11 @@ router.get('/scorecards/:id', authenticateToken, (req, res) => {
 
     // Get Items
     const items = db.prepare(`
-      SELECT si.*, k.code, k.title, k.tooltip, k.category_id, k.order_idx
+      SELECT 
+        si.*,
+        COALESCE(si.self_score, 0) as self_score,
+        COALESCE(si.manager_score, 0) as manager_score,
+        k.code, k.title, k.tooltip, k.category_id, k.order_idx
       FROM scorecard_items si
       JOIN kpis k ON si.kpi_id = k.id
       WHERE si.scorecard_id = ?
@@ -268,6 +299,11 @@ router.get('/scorecards/:id', authenticateToken, (req, res) => {
     `).all(scorecard.id);
 
     // Dynamic Calculations
+    const calculations = calculateScorecard(
+      scorecard.employee_level, 
+      items, 
+      scorecard.status === 'Draft' || scorecard.status === 'Submitted' ? 'self' : 'manager'
+    );
     const selfCalculations = calculateScorecard(scorecard.employee_level, items, 'self');
     const managerCalculations = calculateScorecard(scorecard.employee_level, items, 'manager');
 
@@ -281,6 +317,7 @@ router.get('/scorecards/:id', authenticateToken, (req, res) => {
       scorecard: {
         ...scorecard,
         items,
+        calculations,
         selfCalculations,
         managerCalculations,
         auditLogs
@@ -392,6 +429,7 @@ router.post('/scorecards/:id/submit', authenticateToken, (req, res) => {
     const selfCalc = calculateScorecard(scorecard.employee_level, currentItems, 'self');
 
     // Update status to Submitted
+    const oldStatus = scorecard.status;
     db.prepare(`
       UPDATE scorecards
       SET status = 'Submitted',
@@ -400,6 +438,9 @@ router.post('/scorecards/:id/submit', authenticateToken, (req, res) => {
           updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(selfCalc.composite_score, id);
+
+    // Log explicit state transition to production.log
+    writeProductionLog(`Scorecard ID ${id} transitioned from ${oldStatus} to Submitted (Employee: ${scorecard.employee_name}, User ID: ${scorecard.user_id}, Self Score: ${selfCalc.composite_score})`);
 
     // Insert audit log
     const isLeadEvaluation = scorecard.employee_role === 'TEAM_LEAD' || scorecard.employee_level === 'Lead';
@@ -545,6 +586,7 @@ router.post('/scorecards/:id/finalize', authenticateToken, (req, res) => {
     const currentItems = db.prepare(`SELECT * FROM scorecard_items WHERE scorecard_id = ?`).all(id);
     const mgrCalc = calculateScorecard(scorecard.employee_level, currentItems, 'manager');
 
+    const oldStatus = scorecard.status;
     db.prepare(`
       UPDATE scorecards
       SET status = 'Reviewed',
@@ -562,6 +604,9 @@ router.post('/scorecards/:id/finalize', authenticateToken, (req, res) => {
       overall_manager_notes || '',
       id
     );
+
+    // Log explicit state transition to production.log
+    writeProductionLog(`Scorecard ID ${id} transitioned from ${oldStatus} to Reviewed (Employee: ${scorecard.employee_name}, Lead: ${managerName || req.user.name || 'Team Lead'}, Score: ${mgrCalc.composite_score}, Tier: ${mgrCalc.tier})`);
 
     // Insert audit log
     db.prepare(`
@@ -608,6 +653,7 @@ router.post('/scorecards/:id/audit-comment', authenticateToken, (req, res) => {
       return res.status(404).json({ success: false, message: 'Scorecard not found' });
     }
 
+    const oldStatus = scorecard.status;
     let newStatus = scorecard.status;
     let logAction = action || 'COMMENT';
 
@@ -618,6 +664,7 @@ router.post('/scorecards/:id/audit-comment', authenticateToken, (req, res) => {
         SET status = 'Audited', audited_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `).run(id);
+      writeProductionLog(`Scorecard ID ${id} transitioned from ${oldStatus} to Audited (Approved by Executive Auditor ${authorName || req.user.name})`);
     } else if (action === 'REVISION_REQUESTED') {
       newStatus = 'Needs Revision';
       db.prepare(`
@@ -625,6 +672,7 @@ router.post('/scorecards/:id/audit-comment', authenticateToken, (req, res) => {
         SET status = 'Needs Revision', updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `).run(id);
+      writeProductionLog(`Scorecard ID ${id} transitioned from ${oldStatus} to Needs Revision (Revision requested by Executive Auditor ${authorName || req.user.name})`);
     }
 
     db.prepare(`
@@ -687,6 +735,7 @@ router.put('/scorecards/:id/auditor-review', authenticateToken, (req, res) => {
       updateTx(auditor_notes);
     }
 
+    const oldStatus = scorecard.status;
     let newStatus = scorecard.status;
     let logAction = action || 'COMMENT';
 
@@ -697,6 +746,7 @@ router.put('/scorecards/:id/auditor-review', authenticateToken, (req, res) => {
         SET status = 'Audited', audited_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `).run(id);
+      writeProductionLog(`Scorecard ID ${id} transitioned from ${oldStatus} to Audited (Approved by Executive Auditor ${authorName || req.user.name})`);
     } else if (action === 'REVISION_REQUESTED') {
       newStatus = 'Needs Revision';
       db.prepare(`
@@ -704,6 +754,7 @@ router.put('/scorecards/:id/auditor-review', authenticateToken, (req, res) => {
         SET status = 'Needs Revision', updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `).run(id);
+      writeProductionLog(`Scorecard ID ${id} transitioned from ${oldStatus} to Needs Revision (Revision requested by Executive Auditor ${authorName || req.user.name})`);
     }
 
     // Insert into audit_logs
@@ -808,6 +859,7 @@ router.get('/audit-feed', authenticateToken, (req, res) => {
 router.post('/seed/reset', (req, res) => {
   try {
     seedDatabase();
+    writeProductionLog('All scorecards transitioned to Draft via Database Reset');
     res.json({ success: true, message: 'Database reset and re-seeded successfully' });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

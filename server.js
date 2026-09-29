@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url';
 import apiRouter from './server/api.js';
 import { initDatabase, db } from './server/db.js';
 import { seedDatabase } from './server/seed.js';
+import { productionLoggingMiddleware, writeProductionLog } from './server/logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -32,6 +33,10 @@ app.use(helmet({
 
 app.use(cors());
 app.use(express.json());
+app.use(productionLoggingMiddleware);
+
+// Record initial server startup entry
+writeProductionLog('Production server logging initialized');
 
 // Initialize SQLite database (WAL on local/on-prem, /tmp on Vercel)
 initDatabase();

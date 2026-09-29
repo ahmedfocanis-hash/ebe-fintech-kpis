@@ -15,7 +15,8 @@ import {
   ShieldCheck, 
   MessageSquare, 
   RotateCcw,
-  UserCheck
+  UserCheck,
+  Lock
 } from 'lucide-react';
 
 export default function TeamLeadView({ onInspectScorecard }) {
@@ -84,11 +85,13 @@ export default function TeamLeadView({ onInspectScorecard }) {
 
   const filteredScorecards = useMemo(() => {
     return teamScorecards.filter(sc => {
-      const matchStatus = statusFilter === 'All' || sc.status === statusFilter;
+      // Direct Reports must always be visible. Reviewed and Audited scorecards must NEVER be hidden by status filters!
+      const isFinalizedOrAudited = sc.status === 'Reviewed' || sc.status === 'Audited';
+      const matchStatus = statusFilter === 'All' || sc.status === statusFilter || isFinalizedOrAudited;
       const matchLevel = levelFilter === 'All' || sc.employee_level === levelFilter;
       const matchSearch = !searchQuery || 
-        sc.employee_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        sc.employee_email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        sc.employee_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        sc.employee_email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         sc.employee_title?.toLowerCase().includes(searchQuery.toLowerCase());
 
       return matchStatus && matchLevel && matchSearch;
@@ -354,7 +357,14 @@ export default function TeamLeadView({ onInspectScorecard }) {
                       : 'bg-white text-[#354d51] hover:bg-[#fafafa] border border-[#ebebeb]'
                   }`}
                 >
-                  {st} {st === 'All' ? `(${metrics.total})` : st === 'Submitted' ? `(${metrics.submitted})` : st === 'Needs Revision' ? `(${metrics.needsRevision})` : ''}
+                  {st} {
+                    st === 'All' ? `(${metrics.total})` : 
+                    st === 'Submitted' ? `(${metrics.submitted})` : 
+                    st === 'Needs Revision' ? `(${metrics.needsRevision})` : 
+                    st === 'Reviewed' ? `(${metrics.reviewed})` : 
+                    st === 'Audited' ? `(${metrics.audited})` : 
+                    st === 'Draft' ? `(${metrics.draft})` : ''
+                  }
                 </button>
               ))}
             </div>
@@ -482,24 +492,36 @@ export default function TeamLeadView({ onInspectScorecard }) {
                         {/* Actions */}
                         <td className="py-3.5 px-5 text-right">
                           <div className="flex items-center justify-end space-x-2">
-                            <button
-                              type="button"
-                              onClick={() => handleOpenGrade(sc.id)}
-                              className={`rounded-full px-3.5 py-1.5 text-xs font-[475] transition-all flex items-center space-x-1.5 cursor-pointer ${
-                                sc.status === 'Needs Revision'
-                                  ? 'bg-[#863d1c] text-white hover:bg-[#723215]'
-                                  : sc.status === 'Submitted'
-                                  ? 'bg-[#abffae] text-[#032125] hover:bg-[#96f799] border border-[#abffae] focus-glow'
-                                  : 'bg-white hover:bg-[#fafafa] text-[#032125] border border-[#ebebeb]'
-                              }`}
-                            >
-                              <Edit3 className="w-3.5 h-3.5" />
-                              <span>
-                                {sc.status === 'Needs Revision' 
-                                  ? 'Revise & Re-Grade' 
-                                  : (sc.status === 'Submitted' ? 'Grade Now' : 'Edit Evaluation')}
+                            {sc.status === 'Reviewed' ? (
+                              <span className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-[#f4fbf7] text-[#0b363b] border border-[#abffae]/40 text-xs font-[475] select-none">
+                                <Lock className="w-3.5 h-3.5 text-[#0b363b]" />
+                                <span>With Management</span>
                               </span>
-                            </button>
+                            ) : sc.status === 'Audited' ? (
+                              <span className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-[#0b363b] text-[#abffae] border border-[#0b363b] text-xs font-[475] select-none">
+                                <ShieldCheck className="w-3.5 h-3.5 text-[#abffae]" />
+                                <span>Audited & Signed</span>
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenGrade(sc.id)}
+                                className={`rounded-full px-3.5 py-1.5 text-xs font-[475] transition-all flex items-center space-x-1.5 cursor-pointer ${
+                                  sc.status === 'Needs Revision'
+                                    ? 'bg-[#863d1c] text-white hover:bg-[#723215]'
+                                    : sc.status === 'Submitted'
+                                    ? 'bg-[#abffae] text-[#032125] hover:bg-[#96f799] border border-[#abffae] focus-glow'
+                                    : 'bg-white hover:bg-[#fafafa] text-[#032125] border border-[#ebebeb]'
+                                }`}
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                                <span>
+                                  {sc.status === 'Needs Revision' 
+                                    ? 'Revise & Re-Grade' 
+                                    : (sc.status === 'Submitted' ? 'Grade Now' : 'Edit Evaluation')}
+                                </span>
+                              </button>
+                            )}
 
                             <button
                               type="button"
