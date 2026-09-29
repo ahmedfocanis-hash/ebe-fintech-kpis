@@ -439,8 +439,9 @@ router.post('/scorecards/:id/submit', authenticateToken, (req, res) => {
       WHERE id = ?
     `).run(selfCalc.composite_score, id);
 
-    // Log explicit state transition to production.log
-    writeProductionLog(`Scorecard ID ${id} transitioned from ${oldStatus} to Submitted (Employee: ${scorecard.employee_name}, User ID: ${scorecard.user_id}, Self Score: ${selfCalc.composite_score})`);
+    // Log explicit state transition to production.log and console
+    req._transitionLogged = true;
+    writeProductionLog(`Scorecard ${id} transitioned from ${oldStatus} to Submitted by ${scorecard.employee_name}`, req, 200);
 
     // Insert audit log
     const isLeadEvaluation = scorecard.employee_role === 'TEAM_LEAD' || scorecard.employee_level === 'Lead';
@@ -533,6 +534,9 @@ router.put('/scorecards/:id/manager-review', authenticateToken, (req, res) => {
       id
     );
 
+    req._transitionLogged = true;
+    writeProductionLog(`Scorecard ${id} manager review updated by ${req.user.name || 'Ahmed Hashim'} (Score: ${mgrCalc.composite_score})`, req, 200);
+
     res.json({
       success: true,
       message: 'Manager review draft saved',
@@ -605,8 +609,9 @@ router.post('/scorecards/:id/finalize', authenticateToken, (req, res) => {
       id
     );
 
-    // Log explicit state transition to production.log
-    writeProductionLog(`Scorecard ID ${id} transitioned from ${oldStatus} to Reviewed (Employee: ${scorecard.employee_name}, Lead: ${managerName || req.user.name || 'Team Lead'}, Score: ${mgrCalc.composite_score}, Tier: ${mgrCalc.tier})`);
+    // Log explicit state transition to production.log and console
+    req._transitionLogged = true;
+    writeProductionLog(`Scorecard ${id} transitioned from ${oldStatus} to Reviewed by ${managerName || req.user.name || 'Ahmed Hashim'}`, req, 200);
 
     // Insert audit log
     db.prepare(`
@@ -664,7 +669,8 @@ router.post('/scorecards/:id/audit-comment', authenticateToken, (req, res) => {
         SET status = 'Audited', audited_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `).run(id);
-      writeProductionLog(`Scorecard ID ${id} transitioned from ${oldStatus} to Audited (Approved by Executive Auditor ${authorName || req.user.name})`);
+      req._transitionLogged = true;
+      writeProductionLog(`Scorecard ${id} transitioned from ${oldStatus} to Audited by ${authorName || req.user.name || 'Executive Auditor'}`, req, 200);
     } else if (action === 'REVISION_REQUESTED') {
       newStatus = 'Needs Revision';
       db.prepare(`
@@ -672,7 +678,8 @@ router.post('/scorecards/:id/audit-comment', authenticateToken, (req, res) => {
         SET status = 'Needs Revision', updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `).run(id);
-      writeProductionLog(`Scorecard ID ${id} transitioned from ${oldStatus} to Needs Revision (Revision requested by Executive Auditor ${authorName || req.user.name})`);
+      req._transitionLogged = true;
+      writeProductionLog(`Scorecard ${id} transitioned from ${oldStatus} to Needs Revision by ${authorName || req.user.name || 'Executive Auditor'}`, req, 200);
     }
 
     db.prepare(`
@@ -746,7 +753,8 @@ router.put('/scorecards/:id/auditor-review', authenticateToken, (req, res) => {
         SET status = 'Audited', audited_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `).run(id);
-      writeProductionLog(`Scorecard ID ${id} transitioned from ${oldStatus} to Audited (Approved by Executive Auditor ${authorName || req.user.name})`);
+      req._transitionLogged = true;
+      writeProductionLog(`Scorecard ${id} transitioned from ${oldStatus} to Audited by ${authorName || req.user.name || 'Executive Auditor'}`, req, 200);
     } else if (action === 'REVISION_REQUESTED') {
       newStatus = 'Needs Revision';
       db.prepare(`
@@ -754,7 +762,11 @@ router.put('/scorecards/:id/auditor-review', authenticateToken, (req, res) => {
         SET status = 'Needs Revision', updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `).run(id);
-      writeProductionLog(`Scorecard ID ${id} transitioned from ${oldStatus} to Needs Revision (Revision requested by Executive Auditor ${authorName || req.user.name})`);
+      req._transitionLogged = true;
+      writeProductionLog(`Scorecard ${id} transitioned from ${oldStatus} to Needs Revision by ${authorName || req.user.name || 'Executive Auditor'}`, req, 200);
+    } else {
+      req._transitionLogged = true;
+      writeProductionLog(`Scorecard ${id} auditor review feedback saved by ${authorName || req.user.name || 'Executive Auditor'}`, req, 200);
     }
 
     // Insert into audit_logs

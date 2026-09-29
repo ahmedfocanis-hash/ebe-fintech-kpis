@@ -493,15 +493,23 @@ export default function TeamLeadView({ onInspectScorecard }) {
                         <td className="py-3.5 px-5 text-right">
                           <div className="flex items-center justify-end space-x-2">
                             {sc.status === 'Reviewed' ? (
-                              <span className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-[#f4fbf7] text-[#0b363b] border border-[#abffae]/40 text-xs font-[475] select-none">
+                              <button
+                                type="button"
+                                disabled
+                                className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-full bg-[#f4fbf7] text-[#0b363b] border border-[#abffae]/40 text-xs font-[475] cursor-not-allowed opacity-90 select-none"
+                              >
                                 <Lock className="w-3.5 h-3.5 text-[#0b363b]" />
-                                <span>With Management</span>
-                              </span>
+                                <span>Locked - With Management</span>
+                              </button>
                             ) : sc.status === 'Audited' ? (
-                              <span className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-[#0b363b] text-[#abffae] border border-[#0b363b] text-xs font-[475] select-none">
+                              <button
+                                type="button"
+                                disabled
+                                className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-full bg-[#0b363b] text-[#abffae] border border-[#0b363b] text-xs font-[475] cursor-not-allowed opacity-90 select-none"
+                              >
                                 <ShieldCheck className="w-3.5 h-3.5 text-[#abffae]" />
-                                <span>Audited & Signed</span>
-                              </span>
+                                <span>Locked - Audited</span>
+                              </button>
                             ) : (
                               <button
                                 type="button"

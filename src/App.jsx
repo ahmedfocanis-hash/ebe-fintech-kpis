@@ -8,6 +8,7 @@ import AuditorView from './views/AuditorView';
 import WeightMatrixModal from './components/WeightMatrixModal';
 import Toast from './components/Toast';
 import { ArrowLeft } from 'lucide-react';
+import { Analytics } from '@vercel/analytics/react';
 
 function AppContent() {
   const { currentUser, loading } = useAuth();
@@ -116,6 +117,7 @@ export default function App() {
   return (
     <AuthProvider>
       <AppContent />
+      <Analytics />
     </AuthProvider>
   );
 }
